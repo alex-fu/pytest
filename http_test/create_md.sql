@@ -1,4 +1,4 @@
-CREATE TABLE `zn1710_2016_2` (
+CREATE TABLE `zn1710_2016_1` (
   `id` UINT32,
   `TradingDay` STRING,
   `InstrumentID` STRING,

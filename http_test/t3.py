@@ -48,7 +48,7 @@ def execute_sql(sql, need_print_content=True):
         "query": sql,
         "database": get_database()
     }
-    r = requests.post(url, data=command)
+    r = requests.post(url, json=command)
     if need_print_content:
         print(r.status_code)
         print(r.content)
@@ -92,7 +92,7 @@ def sql_test():
     for row in d['results'][0]['rows']:
         print("%s %s %3s %s" % (row[1], row[21], row[22], row[5]))
 
-@profile
+# @profile
 def insert_test():
     from time import time
     start = time()
@@ -104,7 +104,7 @@ def insert_test():
 
 
 if __name__ == '__main__':
-    # create_table_test()
+    create_table_test()
     # list_table_test()
     # describe_table_test()
     insert_test()
