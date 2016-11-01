@@ -1,12 +1,34 @@
 # coding=utf8
-from concurrent import futures
 
-import grequests
+import os
+import sys
+
+from requests.adapters import HTTPAdapter
+
+use_gevent = (not sys.flags.ignore_environment
+          and bool(os.getenv('USE_GEVENT')))
+print("USE_GEVENT? {}".format(use_gevent))
+use_grequests = (not sys.flags.ignore_environment
+          and bool(os.getenv('USE_GREQUEST')))
+print("USE_GREQUEST? {}".format(use_grequests))
+
+if use_gevent:
+    from gevent.monkey import patch_all
+    patch_all()
+    print("Patch all for gevent")
+    import gevent
+
+if use_grequests:
+    import grequests
+
+
+from concurrent import futures
 import requests
 
 from http_test.debug import debug_entry
 from http_test.time import timethis
 
+N = 100000
 
 def base_url():
     return 'http://localhost:9175'
@@ -74,7 +96,7 @@ def grequest_execute_sql(sql):
         "query": sql,
         "database": get_database()
     }
-    return grequests.post(url, json=command)
+    return grequests.post(url, json=command, session=session)
 
 @debug_entry
 def create_table_test():
@@ -104,18 +126,18 @@ def describe_table_test():
 
 @debug_entry
 def sql_test():
-    sql = "select * from t1 order by id desc limit 1"
+    sql = "select count(*) from t1"
     r = execute_sql(sql, False)
     d = r.json()
     for row in d['results'][0]['rows']:
-        print("%s %s" % (row[0], row[1]))
+        print("%s" % (row[0]))
 
 
 # @profile
 @debug_entry
 @timethis
 def insert_test():
-    for i in range(1, 10030):
+    for i in range(1, N):
         sql = "insert into t1 values(%d, 'name%d')" % (i, i)
         execute_sql(sql, False)
 
@@ -136,26 +158,38 @@ def grequests_insert(x):
 def multi_thread_insert_test():
     from multiprocessing.dummy import Pool
     p = Pool(4)
-    p.map(insert, range(1, 10000))
+    p.map(insert, range(1, N))
+    print("done")
+
+
+@debug_entry
+@timethis
+def multi_process_insert_test():
+    from multiprocessing import Pool
+    p = Pool(4)
+    p.map(insert, range(1, N))
     print("done")
 
 @debug_entry
 @timethis
 def eventlet_insert_test():
     import eventlet
+    eventlet.monkey_patch()
+    print(eventlet.patcher.is_monkey_patched('socket'))
     p = eventlet.GreenPool()
-    s = 0
-    for r in p.imap(insert, range(1, 10000)):
-        s += r
+    # s = 0
+    # for r in p.imap(insert, range(1, N)):
+    #     s += r
+    print(sum(p.imap(insert, range(1, N))))
     print("done")
 
 
 @debug_entry
 @timethis
 def gevent_insert_test():
-    import gevent
-    jobs = [gevent.spawn(insert, t) for t in range(1, 10000)]
-    gevent.joinall(jobs)
+    from gevent.pool import Pool
+    pool = Pool(100)
+    pool.map(insert, range(1, N))
     print("done")
 
 
@@ -163,25 +197,25 @@ def gevent_insert_test():
 @timethis
 def future_insert_test():
     with futures.ThreadPoolExecutor(max_workers=4) as e:
-        fs = [e.submit(insert, x) for x in range(1, 10000)]
+        fs = [e.submit(insert, x) for x in range(1, N)]
         futures.wait(fs)
 
 @debug_entry
 @timethis
 def future_insert_test_2():
     with futures.ThreadPoolExecutor(max_workers=4) as e:
-        e.map(insert, range(1, 10000))
+        e.map(insert, range(1, N))
 
 @debug_entry
 @timethis
 def future_insert_test_3():
     with futures.ProcessPoolExecutor(max_workers=10) as e:
-        e.map(insert, range(1, 10000))
+        e.map(insert, range(1, N))
 
 @debug_entry
 @timethis
 def grequests_insert_test():
-    rs = (grequests_insert(x) for x in range(1, 100000))
+    rs = (grequests_insert(x) for x in range(1, N))
     rs2 = grequests.imap(rs, stream=True, size=1000)
     r = 0
     for _ in rs2:
@@ -193,21 +227,48 @@ def grequests_insert_test():
 @timethis
 def asyncio_insert_test():
     import asyncio
-    async def inner_test():
-        loop = asyncio.get_event_loop()
-        for f in (loop.run_in_executor(None, insert, x) for x in range(1, 10000)):
-            await f
+    import aiohttp
+    import json
+    async def execute(s, sql, need_print_content=True):
+        url = base_url() + '/api/v1/sql'
+        headers = {'content-type': 'application/json'}
+        command = {
+            "format": "json",
+            "query": sql,
+            "database": get_database()
+        }
+        r = await s.post(url, data=json.dumps(command), headers=headers)
+        r.close()
+        # async with s.post(url, data=json.dumps(command), headers=headers) as resp:
+        #     await resp.json()
+        #     if need_print_content:
+        #         print(await resp.json())
+
+    async def insert(s, x):
+        sql = "insert into t1 values(%d, 'm_name%d')" % (x, x)
+        # if x % 1000 == 0:
+        #     print(x)
+        await execute(s, sql, False)
+
+    async def insert_test(s):
+        await asyncio.wait([insert(s, x) for x in range(1, N)])
+
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(inner_test())
+    conn = aiohttp.TCPConnector(limit=100, loop=loop)
+    with aiohttp.ClientSession(connector=conn, loop=loop) as sess:
+        loop.run_until_complete(insert_test(sess))
 
 
 if __name__ == '__main__':
+    N = 10000
     session = new_session()
+    session.mount('http://', HTTPAdapter(max_retries=5))
     create_table_test()
-    list_table_test()
-    describe_table_test()
+    # list_table_test()
+    # describe_table_test()
     # insert_test()
     # multi_thread_insert_test()
+    # multi_process_insert_test()
     # eventlet_insert_test()
     # gevent_insert_test()
     # future_insert_test()
