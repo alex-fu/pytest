@@ -1,0 +1,10 @@
+python -m mysql_test.t2 -d t1 cleanup &
+python -m mysql_test.t2 -d t2 cleanup &
+python -m mysql_test.t2 -d t3 cleanup &
+python -m mysql_test.t2 -d t4 cleanup &
+python -m mysql_test.t2 -d t5 cleanup &
+python -m mysql_test.t2 -d t6 cleanup &
+python -m mysql_test.t2 -d t7 cleanup &
+python -m mysql_test.t2 -d t8 cleanup &
+python -m mysql_test.t2 -d t9 cleanup &
+python -m mysql_test.t2 -d t10 cleanup &

@@ -1,0 +1,10 @@
+python -m mysql_test.t2 -d t1 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t2 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t3 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t4 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t5 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t6 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t7 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t8 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t9 -c 48 -t 50000 select &
+python -m mysql_test.t2 -d t10 -c 48 -t 50000 select &
