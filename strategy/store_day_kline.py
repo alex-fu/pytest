@@ -87,11 +87,11 @@ def _do_sync_day_kline_multi(stocks, startdate, enddate):
     print("~Completed~")
     print("-"*30)
     print("~Stats~")
-    print("G_retrieve_stock_succeed: ", str(G_retrieve_stock_succeed))
-    print("G_retrieve_stock_failed: ", str(G_retrieve_stock_failed))
-    print("G_retrieve_klines: ", str(G_retrieve_klines))
-    print("G_retrieve_db_saved: ", str(G_retrieve_db_saved))
-    print("G_retrieve_db_failed: ", str(G_retrieve_db_failed))
+    print("G_retrieve_stock_succeed: ", int(G_retrieve_stock_succeed._value.get()))
+    print("G_retrieve_stock_failed: ", int(G_retrieve_stock_failed._value.get()))
+    print("G_retrieve_klines: ", int(G_retrieve_klines._value.get()))
+    print("G_retrieve_db_saved: ", int(G_retrieve_db_saved._value.get()))
+    print("G_retrieve_db_failed: ", int(G_retrieve_db_failed._value.get()))
     print("-"*30)
 
 
@@ -133,7 +133,7 @@ def sync_day_kline(stock, startdate, enddate):
 
     except Exception as e:
         print('-' * 30)
-        print("Exception:", e)
+        print("Exception:", "Sync day kline failed for {}!".format(stock), "Detail:", e)
         # import traceback
         # traceback.print_exc()
         print('-' * 30)
@@ -186,6 +186,7 @@ if __name__ == '__main__':
     from prometheus_client import start_http_server
     start_http_server(7777)
 
-    main()
+    # main()
+    # hist()
     # today()
-    # cli()
+    cli()

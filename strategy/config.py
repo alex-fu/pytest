@@ -1,6 +1,6 @@
 
 HOST = 'localhost'
-BUCKET_NAME = 'default'
+BUCKET_NAME = 'stock'
 DBURL = 'couchbase://' + HOST + '/' + BUCKET_NAME
 KDAY_PREFIX = 'kday_'
 STOCK_PREFIX = 'stock_'
