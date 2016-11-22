@@ -1,5 +1,13 @@
 # coding=utf8
 
+from fn.iters import *
+from fn import _
+
+from strategy.testLine import TestLine
+from strategy.utils import Bean
+
+ST_NAME = 'transtrend'
+ST_VERSION = 'v1'
 
 def main():
     """
@@ -61,7 +69,7 @@ def main():
                         help='*Strategy specific argument*. How many days do you want to keep')
     parser.add_argument('-p', '--stop-percent', required=True, type=float,
                         help='*Strategy specific argument*. Stop percent(like 5%), means if you lose 5%, sell it')
-    parser.add_argument('stock', nargs='?')
+    parser.add_argument('stock', nargs='*')
     args = parser.parse_args()
 
     # check arguments
@@ -79,39 +87,151 @@ def main():
         exit(1)
 
     print('-' * 30)
-    print('Arguments: \n- Test start on: {}\n- Test end on: {}\n- NDayClose: {}\n- Stop percent: {}\n- Stocks: '.format(
-        args.start, args.end, args.ndayclose, args.stop_percent, args.stock
-    ))
+    print(
+        'Arguments: \n- Test start on: {}\n- Test end on: {}\n- NDayClose: {}\n- Stop percent: {}\n- Stocks: {}'.format(
+            args.start, args.end, args.ndayclose, args.stop_percent, args.stock
+        ))
     print('-' * 30)
 
-    run(args.start, args.end, args)
+    if not args.stock:
+        from strategy.dbutils import get_stocklist_fromdb
+        args.stock = get_stocklist_fromdb()
+
+    params = Bean()
+    params.ndayclose = args.ndayclose
+    params.stop_percent = args.stop_percent
+
+    run(args.start, args.end, args.stock, params)
 
 
-def run(startdate, enddate, args):
-    stocks = args.stock
+def run(startdate, enddate, stocks, params):
     # FIXME: change to use ThreadPool or ProcessPool
     for stock in stocks:
-        loop(startdate, enddate, stock, args)
+        testLine = TestLine()
+        testLine.startdate = startdate
+        testLine.enddate = enddate
+        testLine.stock = stock
+        testLine.params = params
+        loop(testLine)
 
 
-def loop(startdate, enddate, stock, args):
+def loop(testLine):
     # get day klines between startdate and enddate for stock
     from strategy.dbutils import get_day_kline
-    klines = get_day_kline(stock, startdate, enddate)
+    klines = get_day_kline(testLine.stock, testLine.startdate, testLine.enddate)
 
     # get rid of illegal kline
-    valid_klines = [k for k in klines if _is_valid_kline(k)]
-    print(valid_klines)
+    (invalid_klines, valid_klines) = partition(_is_valid_kline, klines)
+    for x in invalid_klines:
+        print('Invalid KLine:', x)
 
+    testLine.klines = list(valid_klines)
     # loop for each kline, check if it can open
+    for index, _ in enumerate(testLine.klines):
+        testLine.klineIndex = index
+        handle(testLine)
+    # complete loop
+    complete(testLine)
 
 
-    # if it can open, calculate the close date and close price
+def handle(testLine):
+    yd_kline = testLine.ydKLine
+    kline = testLine.getk()
+    if kline is not None:
+        testLine.ydKLine = kline
 
-    # store result to db
+    # prepare flagList
+    if yd_kline is None:
+        testLine.flagList = [0]
+        return
+    else:
+        testLine.flagList.append(_get_flag(yd_kline, kline))
 
-    pass
+    if len(testLine.flagList) <= 4:
+        return
 
+    position = testLine.position1()
+
+    # should open?
+    open = False
+    if position.volume > 0:  # don't open if has position
+        open = False
+    elif testLine.flagList[-1] == 2 and testLine.flagList[-2] == 2 \
+            and _lower_price(testLine.flagList[-3]) and _lower_price(testLine.flagList[-4]):
+        open = True
+
+    # if should open, use close price to open
+    if open:
+        testLine.open1(kline['close'])
+
+    # should close?
+    close = False
+    if position.volume > 0:
+        if testLine.klineIndex - position.klineIndex == testLine.params.ndayclose:
+            close = True
+        elif 1.0 - (float(kline['close']) / position.open_price) >= testLine.params.stop_percent:
+            close = True
+
+    if close:
+        testLine.close1(kline['close'])
+
+
+def complete(testLine):
+    from strategy.config import ST_DBURL
+    from couchbase.bucket import Bucket
+    cb = Bucket(ST_DBURL)
+    # store trade log to db
+    # key format 'strategy_<strategyName>_<strategyVersion>_<startDate>_<endDate>_<stock>_<NDayClose>_<StopPercent>'
+    key = 'strategy_' \
+          + ST_NAME + '_' \
+          + ST_VERSION + '_' \
+          + testLine.startdate + '_' \
+          + testLine.enddate + '_' \
+          + testLine.stock + '_' \
+          + str(testLine.params.ndayclose) + '_' \
+          + str(testLine.params.stop_percent)
+    trade_list = []
+    for t in testLine.trades():
+        trade_list.append(t.json())
+        print(key, '=>', t.json())
+    if trade_list:
+        r = testLine.json()
+        r['strategy_name'] = ST_NAME
+        r['strategy_version'] = ST_VERSION
+        r['ndayclose'] = testLine.params.ndayclose
+        r['stop_percent'] = testLine.params.stop_percent
+        r['trades'] = trade_list
+        cb.upsert(key, r)
+
+
+def _get_flag(ydKLine, kline):
+    '''
+    :return:
+        2:  量价齐升
+        1:  量跌价升
+        -1: 量升价跌
+        -2: 量价齐跌
+        0:  特殊值
+        (相等算跌)
+    '''
+    price_flag = kline['close'] > ydKLine['close']
+    volume_flag = kline['volume'] > ydKLine['volume']
+    if price_flag and volume_flag:
+        return 2
+    elif not price_flag and not volume_flag:
+        return -2
+    elif not price_flag and volume_flag:
+        return -1
+    else:
+        return 1
+
+
+def _lower_price(flag):
+    return flag in [-1, -2]
+
+
+def _higher_price(flag):
+    return flag in [1, 2]
 
 def _is_valid_kline(_):
     if _['close'] > 0 and _['volume'] > 0:
