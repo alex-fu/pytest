@@ -5,7 +5,12 @@ from couchbase.n1ql import N1QLQuery
 
 from strategy.config import *
 
+from fn import _
 
+from retry import retry
+
+
+@retry(TimeoutError, tries=3)
 def get_stocklist_fromdb():
     cb = Bucket(DBURL)
 
@@ -14,15 +19,17 @@ def get_stocklist_fromdb():
     return map(lambda x: x['code'], r)
 
 
+@retry(TimeoutError, tries=3)
 def get_day_kline(stock, startdate, enddate):
     cb = Bucket(DBURL)
 
     cql = 'SELECT * FROM `' + BUCKET_NAME + \
           '` WHERE type="stock_kday" and code=$code and date>$startdate and date<$enddate ORDER BY date'
     r = cb.n1ql_query(N1QLQuery(cql, code=stock, startdate=startdate, enddate=enddate))
-    return map(lambda x: x['stock'], r)
+    return map(_['stock'], r)
+    # return map(lambda x: x['stock'], r)
 
 
 if __name__ == '__main__':
-    # print(list(get_stocklist_fromdb()))
-    print(list(get_day_kline('000777', '2016-01-01', '2016-12-31')))
+    print(list(get_stocklist_fromdb()))
+    # print(list(get_day_kline('000779', '2016-01-01', '2016-12-31')))

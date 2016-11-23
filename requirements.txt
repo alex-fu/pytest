@@ -1,0 +1,8 @@
+lxml
+pandas
+tushare
+couchbase
+fn
+retry
+flask
+flask-restful

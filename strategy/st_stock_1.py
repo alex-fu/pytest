@@ -97,28 +97,39 @@ def main():
         from strategy.dbutils import get_stocklist_fromdb
         args.stock = get_stocklist_fromdb()
 
-    params = Bean()
-    params.ndayclose = args.ndayclose
-    params.stop_percent = args.stop_percent
+    params = {'ndayclose': args.ndayclose, 'stop_percent': args.stop_percent}
 
     run(args.start, args.end, args.stock, params)
 
 
 def run(startdate, enddate, stocks, params):
-    # FIXME: change to use ThreadPool or ProcessPool
-    for stock in stocks:
-        testLine = TestLine()
-        testLine.startdate = startdate
-        testLine.enddate = enddate
-        testLine.stock = stock
-        testLine.params = params
-        loop(testLine)
+    from concurrent import futures
+    from strategy.config import MAX_PROCESS_WORKERS
+    partial_loop = partial(_loop, startdate=startdate, enddate=enddate, params=params)
+    with futures.ThreadPoolExecutor(max_workers=1) as e:
+        e.map(partial_loop, stocks)
+
+
+def _loop(stock, startdate, enddate, params):
+    testline = TestLine()
+    testline.startdate = startdate
+    testline.enddate = enddate
+    testline.stock = stock
+
+    params_bean = Bean()
+    params_bean.ndayclose = params['ndayclose']
+    params_bean.stop_percent = params['stop_percent']
+    testline.params = params_bean
+    loop(testline)
 
 
 def loop(testLine):
     # get day klines between startdate and enddate for stock
     from strategy.dbutils import get_day_kline
-    klines = get_day_kline(testLine.stock, testLine.startdate, testLine.enddate)
+    try:
+        klines = get_day_kline(testLine.stock, testLine.startdate, testLine.enddate)
+    except TimeoutError as e:
+        print('Error when get day kline for {}! Detail: {}'.format(testLine.stock, e))
 
     # get rid of illegal kline
     (invalid_klines, valid_klines) = partition(_is_valid_kline, klines)
