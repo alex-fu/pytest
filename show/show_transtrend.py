@@ -10,6 +10,9 @@ from flask import make_response
 
 from strategy.config import ST_DBURL, STRATEGY_BUCKET_NAME
 from fn import _
+from functools import lru_cache
+import threading
+import schedule
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -50,7 +53,7 @@ def get_trades_all(ndayclose):
     r2016 = get_trades_by_year('2016', ndayclose)
     return {**r2011, **r2012, **r2013, **r2014, **r2015, **r2016}
 
-
+@lru_cache(maxsize=32)
 def get_trades_by_year(year, ndayclose):
     cql = 'SELECT trades FROM `' + STRATEGY_BUCKET_NAME + \
           '` WHERE strategy_name=$stname and strategy_version=$stver' + \
@@ -82,6 +85,29 @@ def get_trades_by_year(year, ndayclose):
     return r2
 
 
+def check_lru_cache():
+    print(get_trades_by_year.cache_info())
+
+
+class MonitorThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        schedule.every(1).minutes.do(check_lru_cache)
+        print("Monitor thread inited!")
+
+    def run(self):
+        print("Monitor thread run!")
+        while True:
+            import time
+            schedule.run_pending()
+            time.sleep(1)
+
+
 if __name__ == '__main__':
+    t = MonitorThread()
+    t.start()
+
     api.add_resource(TranstrendAPI, '/transtrend', endpoint='transtrend')
     app.run(debug=True)
+
+    t.join()
