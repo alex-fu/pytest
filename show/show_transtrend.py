@@ -5,8 +5,6 @@ from flask import Flask
 from flask_cors import CORS
 from flask_restful import Api, Resource
 from flask_restful import reqparse
-from functools import wraps
-from flask import make_response
 
 from strategy.config import ST_DBURL, STRATEGY_BUCKET_NAME
 from fn import _
@@ -52,6 +50,7 @@ def get_trades_all(ndayclose):
     r2015 = get_trades_by_year('2015', ndayclose)
     r2016 = get_trades_by_year('2016', ndayclose)
     return {**r2011, **r2012, **r2013, **r2014, **r2015, **r2016}
+
 
 @lru_cache(maxsize=32)
 def get_trades_by_year(year, ndayclose):

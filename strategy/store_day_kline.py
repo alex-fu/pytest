@@ -26,7 +26,7 @@ def cli():
             'code': xxx,
             'date': xxx,
             'type': kday,
-            'fqtype': 'qfq'  (前复权)
+            'fqtype': 'hfq'  (后复权)
             'open': xxx,
             'close': xxx,
             ...
@@ -42,7 +42,7 @@ def cli():
             "code": "600000",
             "open": 18.9,
             "low": 18.82,
-            "fqtype": "qfq"
+            "fqtype": "hfq"
         }
 
     """
@@ -105,11 +105,11 @@ def sync_day_kline_multi(stocks, startdate, enddate):
 def sync_day_kline(stock, startdate, enddate):
     try:
         try:
-            print("Retrieve QFQ day kline for {} from {} to {}".format(stock, startdate, enddate))
+            print("Retrieve HFQ day kline for {} from {} to {}".format(stock, startdate, enddate))
             klines = retrieve_day_kline(stock, startdate, enddate)
             if klines is None:
                 raise RuntimeError(
-                    "ERROR: Cannot retrieve QFQ day kline for {} from {} to {}".format(stock, startdate, enddate))
+                    "ERROR: Cannot retrieve HFQ day kline for {} from {} to {}".format(stock, startdate, enddate))
 
             G_retrieve_stock_succeed.inc()
         except Exception:
@@ -140,7 +140,7 @@ def sync_day_kline(stock, startdate, enddate):
 
 
 def retrieve_day_kline(stock, startdate, enddate):
-    return ts.get_h_data(stock, start=startdate, end=enddate, retry_count=TUSHARE_RETRIES)
+    return ts.get_h_data(stock, start=startdate, end=enddate, autype='hfq', retry_count=TUSHARE_RETRIES)
 
 
 def store_day_kline(date, kline, stock, bucket):
@@ -150,7 +150,7 @@ def store_day_kline(date, kline, stock, bucket):
         'code': stock,
         'date': date_str,
         'type': 'stock_kday',
-        'fqtype': 'qfq'
+        'fqtype': 'hfq'
     }
     for k, v in kline.iteritems():
         d[k] = v
