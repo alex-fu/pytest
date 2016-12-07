@@ -10,11 +10,15 @@ from strategy.config import *
 
 from prometheus_client import Counter
 
+from strategy.dbutils import get_indexlist_fromdb
+
 G_retrieve_stock_succeed = Counter('retrieve_stock_succeed', 'Counter of retrieve stock succeed')
 G_retrieve_stock_failed = Counter('retrieve_stock_failed', 'Counter of retrieve stock failed')
 G_retrieve_klines = Counter('retrieve_klines', 'Counter of retrieved klines')
 G_retrieve_db_saved = Counter('retrieve_db_saved', 'Counter of kline saved to db')
 G_retrieve_db_failed = Counter('retrieve_db_failed', 'Counter of kline save failed to db')
+
+indexes = []
 
 
 def cli():
@@ -140,16 +144,25 @@ def sync_day_kline(stock, startdate, enddate):
 
 
 def retrieve_day_kline(stock, startdate, enddate):
-    return ts.get_h_data(stock, start=startdate, end=enddate, autype='hfq', retry_count=TUSHARE_RETRIES)
+    if stock in indexes:
+        return ts.get_h_data(stock, start=startdate, end=enddate, index=True, retry_count=TUSHARE_RETRIES)
+    else:
+        return ts.get_h_data(stock, start=startdate, end=enddate, autype='hfq', retry_count=TUSHARE_RETRIES)
 
 
 def store_day_kline(date, kline, stock, bucket):
     date_str = date.to_pydatetime().strftime('%Y-%m-%d')
-    key = KDAY_PREFIX + stock + '_' + date_str
+    code = stock
+    dtype = 'stock_kday'
+    if stock in indexes:
+        code = 'index_' + stock
+        dtype = 'index_kday'
+    key = KDAY_PREFIX + code + '_' + date_str
+
     d = {
-        'code': stock,
+        'code': code,
         'date': date_str,
-        'type': 'stock_kday',
+        'type': dtype,
         'fqtype': 'hfq'
     }
     for k, v in kline.iteritems():
@@ -157,7 +170,7 @@ def store_day_kline(date, kline, stock, bucket):
 
     rv = bucket.upsert(key, d)
     if not rv.success:
-        raise RuntimeError("ERROR: upsert day kline for {} on {} failed!".format(stock, date_str))
+        raise RuntimeError("ERROR: upsert day kline for {} on {} failed!".format(code, date_str))
 
 
 def hist():
@@ -176,6 +189,20 @@ def today():
     _do_sync_day_kline_multi(stocks, today, today)
 
 
+def index():
+    # set `indexes`
+    # Note: please don't set `indexes` when get stock data, because some index code identical to some stock code
+    global indexes
+    indexes = list(get_indexlist_fromdb())
+
+    _do_sync_day_kline_multi(indexes, '2016-01-01', '2016-12-31')
+    _do_sync_day_kline_multi(indexes, '2015-01-01', '2015-12-31')
+    _do_sync_day_kline_multi(indexes, '2014-01-01', '2014-12-31')
+    _do_sync_day_kline_multi(indexes, '2013-01-01', '2013-12-31')
+    _do_sync_day_kline_multi(indexes, '2012-01-01', '2012-12-31')
+    _do_sync_day_kline_multi(indexes, '2011-01-01', '2011-12-31')
+
+
 def main():
     stocks = []
     _do_sync_day_kline_multi(stocks, '2016-01-01', '2016-12-31')
@@ -189,4 +216,5 @@ if __name__ == '__main__':
     # main()
     # hist()
     # today()
+    # index()
     cli()

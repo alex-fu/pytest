@@ -6,7 +6,7 @@ from flask_cors import CORS
 from flask_restful import Api, Resource
 from flask_restful import reqparse
 
-from strategy.config import ST_DBURL, STRATEGY_BUCKET_NAME
+from strategy.config import ST_DBURL, STRATEGY_BUCKET_NAME, BUCKET_NAME
 from fn import _
 from functools import lru_cache
 import threading
@@ -19,6 +19,45 @@ cb = Bucket(ST_DBURL)
 
 STNAME = 'transtrend'
 STVER = 'v1'
+
+
+class IndexAPI(Resource):
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('year', type=str, location='args')
+        self.reqparse.add_argument('index', type=str, location='args')
+
+    def get(self):
+        args = self.reqparse.parse_args()
+        year = args['year']
+        index = args['index']
+
+        # closes = None
+        if year and int(year) in range(2011, 2017):
+            closes = get_index_close_by_year(year, index)
+        else:
+            closes = get_index_close_all(index)
+
+        # r = map(lambda x: {'date': x, 'close': closes[x]}, sorted(closes.keys()))
+        return {'result': list(closes)}
+
+
+@lru_cache(maxsize=32)
+def get_index_close_by_year(year, index):
+    from strategy.dbutils import get_index_day_kline
+    r = get_index_day_kline(index, year + '-01-01', year + '-12-31')
+
+    return list(map(lambda x: {'date': x['date'], 'close': x['close']}, r))
+
+
+def get_index_close_all(index):
+    r2011 = get_index_close_by_year('2011', index)
+    r2012 = get_index_close_by_year('2012', index)
+    r2013 = get_index_close_by_year('2013', index)
+    r2014 = get_index_close_by_year('2014', index)
+    r2015 = get_index_close_by_year('2015', index)
+    r2016 = get_index_close_by_year('2016', index)
+    return r2011 + r2012 + r2013 + r2014 + r2015 + r2016
 
 
 class TranstrendAPI(Resource):
@@ -86,6 +125,7 @@ def get_trades_by_year(year, ndayclose):
 
 def check_lru_cache():
     print(get_trades_by_year.cache_info())
+    print(get_index_close_by_year.cache_info())
 
 
 class MonitorThread(threading.Thread):
@@ -102,11 +142,19 @@ class MonitorThread(threading.Thread):
             time.sleep(1)
 
 
-if __name__ == '__main__':
+def main():
     t = MonitorThread()
     t.start()
 
     api.add_resource(TranstrendAPI, '/transtrend', endpoint='transtrend')
-    app.run(debug=True)
+    api.add_resource(IndexAPI, '/index', endpoint='index')
+    app.run(host='192.168.66.211', debug=True)
 
     t.join()
+
+
+if __name__ == '__main__':
+    main()
+    # print(list(get_index_close_by_year('2016', '000002')))
+    # print(list(get_index_close_all('000300')))
+

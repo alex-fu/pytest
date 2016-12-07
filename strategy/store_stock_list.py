@@ -8,6 +8,8 @@ from strategy.config import *
 
 G_saved = 0
 G_failed = 0
+G_index_saved = 0
+G_index_failed = 0
 
 
 def get_stock_list():
@@ -29,7 +31,7 @@ def store_stock(bucket, index, row):
     try:
         rv = bucket.upsert(STOCK_PREFIX + index, fill_stock_info_from_ts(index, row))
         if not rv.success:
-            print("ERROR: upsert stock list failed!")
+            print("ERROR: upsert stock failed:", index)
             G_failed += 1
         else:
             G_saved += 1
@@ -46,7 +48,38 @@ def store_stock_list(bucket):
     stock_list = get_stock_list()
     for index, row in stock_list.iterrows():
         store_stock(bucket, index, row)
-    print("Total saved: {}, total failed: {}".format(G_saved, G_failed))
+    print("Total stock saved: {}, total stock failed: {}".format(G_saved, G_failed))
+
+
+def get_index_list():
+    print("Getting index list...")
+    index_md = ts.get_index()
+    return index_md.ix[:, 'code':'name']
+
+
+def store_index(bucket, row):
+    global G_index_saved, G_index_failed
+    try:
+        d = row.to_dict()
+        d['type'] = 'index'
+        rv = bucket.upsert(INDEX_PREFIX + row['code'], d)
+        if not rv.success:
+            print("ERROR: upsert index failed:", d['code'])
+            G_index_failed += 1
+        else:
+            G_index_saved += 1
+    except CouchbaseError as e:
+        G_index_failed += 1
+        print('-'*30)
+        print("Exception:", e)
+        print('-'*30)
+
+
+def store_index_list(bucket):
+    index_list = get_index_list()
+    for _, row in index_list.iterrows():
+        store_index(bucket, row)
+    print("Total index saved: {}, total index failed: {}".format(G_index_saved, G_index_failed))
 
 
 def main():
@@ -75,10 +108,12 @@ def main():
           "totalAssets": 279123808
         }
     """
-    print("Start to store stock list...")
+    print("Start to store stock & index list...")
     bucket = Bucket(DBURL)
     store_stock_list(bucket)
     print("Store stock list done!")
+    store_index_list(bucket)
+    print("Store index list done!")
 
 
 if __name__ == '__main__':
