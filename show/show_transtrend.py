@@ -18,7 +18,7 @@ api = Api(app)
 cb = Bucket(ST_DBURL)
 
 STNAME = 'transtrend'
-STVER = 'v1'
+STVER = 'v2'
 
 
 class IndexAPI(Resource):
@@ -60,7 +60,7 @@ def get_index_close_all(index):
     return r2011 + r2012 + r2013 + r2014 + r2015 + r2016
 
 
-class TranstrendAPI(Resource):
+class TranstrendWinRateAPI(Resource):
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
         self.reqparse.add_argument('year', type=str, location='args')
@@ -77,7 +77,69 @@ class TranstrendAPI(Resource):
         else:
             trades = get_trades_all(ndayclose)
 
-        r = map(lambda x: {'date': x, 'rate': trades[x]}, sorted(trades.keys()))
+        r = map(lambda x: {'date': x, 'tradenum': len(trades[x]), 'winrate': get_win_rate(trades[x])},
+                sorted(trades.keys()))
+        return {'result': list(r)}
+
+
+class TranstrendWinRateDateRangeAPI(Resource):
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('startdate', type=str, location='args')
+        self.reqparse.add_argument('enddate', type=str, location='args')
+        self.reqparse.add_argument('ndayclose', type=int, required=True, location='args')
+
+    def get(self):
+        args = self.reqparse.parse_args()
+
+        try:
+            # check date format
+            from strategy.utils import check_date
+            check_date(args['startdate'])
+            check_date(args['enddate'])
+            startdate = args['startdate']
+            enddate = args['enddate']
+            if startdate < '2011-01-01':
+                startdate = '2011-01-01'
+            elif enddate < startdate:
+                enddate = startdate
+        except ValueError:
+            print("ERROR: unrecognized date format! Should be like 2010-11-11")
+            return {'result': "Invalid date format on startdate or enddate. e.g. 2016-02-01"}
+
+        startyear = int(startdate[:4])
+        endyear = int(enddate[:4])
+        ndayclose = args['ndayclose']
+
+        trade_list = []
+        for year in range(startyear, endyear + 1):
+            trades = get_trades_by_year(str(year), ndayclose)
+            for date, trade in trades.items():
+                if startdate <= date <= enddate:
+                    trade_list += trade
+
+        return {'result': {'startdate': startdate, 'enddate': enddate, 'tradenum': len(trade_list),
+                           'winrate': get_win_rate(trade_list)}}
+
+
+class TranstrendAPI(Resource):
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('year', type=str, location='args')
+        self.reqparse.add_argument('ndayclose', type=int, location='args')
+
+    def get(self):
+        args = self.reqparse.parse_args()
+        year = args['year']
+        ndayclose = args['ndayclose']
+
+        yields = None
+        if year and int(year) in range(2011, 2017):
+            yields = get_yield_by_year(year, ndayclose)
+        else:
+            yields = get_yield_all(ndayclose)
+
+        r = map(lambda x: {'date': x, 'rate': yields[x]}, sorted(yields.keys()))
         return {'result': list(r)}
 
 
@@ -88,6 +150,16 @@ def get_trades_all(ndayclose):
     r2014 = get_trades_by_year('2014', ndayclose)
     r2015 = get_trades_by_year('2015', ndayclose)
     r2016 = get_trades_by_year('2016', ndayclose)
+    return {**r2011, **r2012, **r2013, **r2014, **r2015, **r2016}
+
+
+def get_yield_all(ndayclose):
+    r2011 = get_yield_by_year('2011', ndayclose)
+    r2012 = get_yield_by_year('2012', ndayclose)
+    r2013 = get_yield_by_year('2013', ndayclose)
+    r2014 = get_yield_by_year('2014', ndayclose)
+    r2015 = get_yield_by_year('2015', ndayclose)
+    r2016 = get_yield_by_year('2016', ndayclose)
     return {**r2011, **r2012, **r2013, **r2014, **r2015, **r2016}
 
 
@@ -109,22 +181,35 @@ def get_trades_by_year(year, ndayclose):
                 r1[date] = [trade]
             else:
                 r1[date].append(trade)
+    return r1
 
-    # print(r1['2016-08-16'])
-    r2 = {}
-    for date, trades in r1.items():
+
+@lru_cache(maxsize=32)
+def get_yield_by_year(year, ndayclose):
+    r = get_trades_by_year(year, ndayclose)
+
+    r1 = {}
+    for date, trades in r.items():
         opened = 0.0
         closed = 0.0
         for trade in trades:
             opened += trade['openPrice']
             closed += trade['closePrice']
-        r2[date] = (closed - opened) / opened
+        r1[date] = (closed - opened) / opened
 
-    return r2
+    return r1
+
+
+def get_win_rate(trade_group):
+    win = 0
+    for trade in trade_group:
+        if trade['closePrice'] - trade['openPrice'] > 0:
+            win += 1
+    return win / len(trade_group)
 
 
 def check_lru_cache():
-    print(get_trades_by_year.cache_info())
+    print(get_yield_by_year.cache_info())
     print(get_index_close_by_year.cache_info())
 
 
@@ -147,6 +232,9 @@ def main():
     t.start()
 
     api.add_resource(TranstrendAPI, '/transtrend', endpoint='transtrend')
+    api.add_resource(TranstrendWinRateAPI, '/transtrend/winrate', endpoint='transtrend_winrate')
+    api.add_resource(TranstrendWinRateDateRangeAPI, '/transtrend/winrate/daterange',
+                     endpoint='transtrend_winrate_daterange')
     api.add_resource(IndexAPI, '/index', endpoint='index')
     app.run(host='192.168.66.211', debug=True)
 
@@ -157,4 +245,3 @@ if __name__ == '__main__':
     main()
     # print(list(get_index_close_by_year('2016', '000002')))
     # print(list(get_index_close_all('000300')))
-
